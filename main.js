@@ -97,16 +97,20 @@ let sendProductQuantities = () => {
     })
 }
 
+let availablePorts = [443, 2053, 2083, 2087, 2096, 8443]
+let currentPortIndex = 0;
+
 let startListening = (port) => {
     server.listen(port, '0.0.0.0', 511, () => {
         console.log(`Trying to run server at http://0.0.0.0:${port}`);
     }).once('error', () => {
+        currentPortIndex++;
         console.log(`Failed to listen on ${port}, trying +1 port`)
-        startListening(port + 1)
+        startListening(availablePorts[currentPortIndex])
     })
 }
 
-startListening(3000)
+startListening(availablePorts[currentPortIndex])
 
 
 

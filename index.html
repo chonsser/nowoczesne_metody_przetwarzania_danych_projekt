@@ -211,7 +211,8 @@
                 let selectedDeviceId;
                 codeReader.listVideoInputDevices()
                     .then((videoInputDevices) => {
-                        selectedDeviceId = videoInputDevices[1].deviceId
+                        let cameraIndex = videoInputDevices.length > 1 ? 1 : 0
+                        selectedDeviceId = videoInputDevices[cameraIndex].deviceId
                         codeReader.decodeFromVideoDevice(selectedDeviceId, 'video', (result, err) => {
                             if (result) {
                                 this.codeScannedCallback(result)
