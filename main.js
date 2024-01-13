@@ -98,6 +98,15 @@ let sendProductQuantities = () => {
 }
 
 let availablePorts = [2053, 2083, 2087, 2096, 8443]
+availablePorts = [
+    80,
+    8080,
+    8880,
+    2052,
+    2082,
+    2086,
+    2095
+]
 let currentPortIndex = 0;
 
 let startListening = (port) => {
