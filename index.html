@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width,initial-scale=1.0">
+    <title>Socket.IO chat</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uikit@3.17.11/dist/css/uikit.min.css"/>
+
+    <!-- UIkit JS -->
+    <script src="https://cdn.jsdelivr.net/npm/uikit@3.17.11/dist/js/uikit.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/uikit@3.17.11/dist/js/uikit-icons.min.js"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.4/howler.min.js" integrity="sha512-xi/RZRIF/S0hJ+yJJYuZ5yk6/8pCiRlEXZzoguSMl+vk2i3m6UjUO/WcZ11blRL/O+rnj94JRGwt/CHbc9+6EA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <style>
+        body {
+            margin: 0;
+            padding-bottom: 3rem;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        .interactions-container {
+            z-index: 10;
+        }
+
+        .interactions-container, .video-container {
+            width: 100svw;
+            height: 100svh;
+            position: fixed;
+        }
+
+        .video-container {
+            background: #333333;
+            z-index: 5;
+            video {
+                width: 100vw;
+                height: 100vh;
+            }
+        }
+        .new-code-overlay {
+            .uk-heading-small {
+                color: #fff;
+                font-weight: bold;
+                text-align: center;
+                position: relative;
+            }
+            .uk-heading-small:after {
+                content: attr(data-text);
+                -webkit-text-stroke: 30px #000;
+                color: #000;
+                position: absolute;
+                left: 0;
+                z-index: -1
+            }
+        }
+        .tracking-bar {
+            height: 100svh;
+            position: fixed;
+            top: 0;
+            width: 100svw;
+            pointer-events: none;
+            .bars-container {
+                bottom: 0;
+                position: absolute;
+                width: 100%;
+                .bars {
+                    padding: 1em
+                }
+            }
+        }
+    </style>
+</head>
+<body>
+<div id="app">
+    <div class="video-container" v-if="cameraAvailable">
+        <video id="video"></video>
+    </div>
+    <div class="interactions-container">
+        <div class="uk-alert-danger" uk-alert v-if="!cameraAvailable">
+            <p>Brak dostępu do kamery</p>
+            <button class="uk-button uk-button-primary" @click="resetCamera">Zezwól</button>
+        </div>
+        <div class="top-bar">
+            <div class="uk-card uk-card-body uk-card-default">
+                <button class="uk-button uk-button-default" @click="enableBarcodeTracking">Dodaj tracking kodu</button>
+            </div>
+        </div>
+        <div class="new-code-overlay" v-if="newBarcodeSetup">
+            <h1 class="uk-heading-small">
+                Następny kod kreskowy będzie dodany do bazy
+            </h1>
+        </div>
+        <div class="quantity-dialog" v-if="displayQuantityDialog">
+            <div>
+                <button type="button" uk-close @click="stopNewCodeAddition"></button>
+                <div class="uk-card uk-card-default uk-card-body">
+                    <h3 class="uk-card-title">[Kod produktu: {{ this.newProductCode }}] Ilość: {{ this.newProductQuantity }}</h3>
+                    <input class="uk-range" type="range" v-model="newProductQuantity" min="0" max="100">
+
+                    <button class="uk-button uk-button-primary" @click="acceptQuantity">Potwierdź</button>
+                </div>
+            </div>
+        </div>
+        <div class="tracking-bar">
+            <div class="bars-container">
+                <div class="bars">
+                    <div class="single-progress" v-for="(productData, productId) in products">
+                        <span class="uk-label">{{ productId }} [{{ productData.quantity}}/{{ productData.requiredQuantity}}]</span>
+                        <progress class="uk-progress" :value="productData.quantity" :max="productData.requiredQuantity"></progress>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<script src="https://cdn.socket.io/4.7.3/socket.io.min.js"
+        integrity="sha384-+miq58Ltmjm+SSP5g8Ok6dpMO/6R4n8xe/x1Yj0Bdb9kiEz25LTnWv/GZQTRQamg"
+        crossorigin="anonymous"></script>
+<script type="text/javascript" src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
+<script type="text/javascript">
+    const {createApp} = Vue
+    const socket = io();
+
+    createApp({
+        data() {
+            return {
+                cameraAvailable: false,
+                cameraError: false,
+                newBarcodeSetup: false,
+                displayQuantityDialog: false,
+                scannedCodesHaystack: [],
+                newProductCode: null,
+                newProductQuantity: 0,
+                beepSound: null,
+                products: [],
+            }
+        },
+        mounted() {
+            this.checkCamera()
+            socket.on('chat message', (msg) => {
+                const item = document.createElement('li');
+                item.textContent = msg;
+                messages.appendChild(item);
+                window.scrollTo(0, document.body.scrollHeight);
+            });
+            socket.on('products-state', (msg) => {
+                let msgDecoded = JSON.parse(msg);
+                console.log('products-state', msgDecoded)
+                this.products = msgDecoded
+            })
+            this.initSound();
+        },
+        methods: {
+            initSound() {
+                this.beepSound = new Howl({
+                    src: ['beep.m4a']
+                });
+            },
+            stopNewCodeAddition() {
+                this.displayQuantityDialog = false;
+                this.newProductCode = null;
+                this.newProductQuantity = 0
+            },
+            acceptQuantity() {
+                let newProductMsg = JSON.stringify({
+                    productId: this.newProductCode,
+                    quantity: this.newProductQuantity
+                })
+                socket.emit('track-new-product', newProductMsg);
+                this.stopNewCodeAddition()
+            },
+            codeScannedCallback(result) {
+                this.beepSound.play();
+                let textEncoded = result.text;
+
+                if(this.newBarcodeSetup) {
+                    this.newProductCode = textEncoded
+                    this.displayQuantityDialog = true;
+                    this.newBarcodeSetup = false;
+                } else {
+                    let wsMsg = JSON.stringify({
+                        productId: textEncoded
+                    })
+
+                    socket.emit('product-scanned', wsMsg);
+                }
+            },
+            resetCamera() {
+              this.checkCamera();
+            },
+            enableBarcodeTracking() {
+                this.newBarcodeSetup = true;
+                // Send info to websocket about new barcode
+            },
+            checkCamera() {
+                navigator.mediaDevices.getUserMedia({audio: false, video: true})
+                    .then((stream) => {
+                        if (stream.getVideoTracks().length > 0) {
+                            this.cameraAvailable = true;
+                            this.startFeed()
+                        } else {
+                            this.cameraError = true;
+                        }
+                    })
+                    .catch((error) => {
+                        this.cameraError = true;
+                        console.error(error)
+                    });
+            },
+            startFeed() {
+                const codeReader = new ZXing.BrowserMultiFormatReader()
+
+                let selectedDeviceId;
+                codeReader.listVideoInputDevices()
+                    .then((videoInputDevices) => {
+                        selectedDeviceId = videoInputDevices[1].deviceId
+                        codeReader.decodeFromVideoDevice(selectedDeviceId, 'video', (result, err) => {
+                            if (result) {
+                                this.codeScannedCallback(result)
+                            }
+                            if (err && !(err instanceof ZXing.NotFoundException)) {
+                                console.error(err)
+                                document.getElementById('result').textContent = err
+                            }
+                        })
+                    })
+
+            }
+        }
+    }).mount('#app')
+</script>
+</body>
+</html>
